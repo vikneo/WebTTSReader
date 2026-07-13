@@ -296,22 +296,21 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        // Получаем текущий URL для сохранения
+        // Запускаем чтение
         webView.evaluateJavascript(
             "if (typeof readPage === 'function') { readPage(); } else { AndroidTTS.log('readPage не найдена'); }",
             null
         )
 
-        // Сохраняем URL
+        // Сохраняем URL (используем константы)
         webView.evaluateJavascript(
             "window.location.href;",
             { url ->
                 val cleanUrl = url?.trim()?.removeSurrounding("\"") ?: ""
                 if (cleanUrl.isNotEmpty()) {
-                    // Передаем URL в сервис
                     val intent = Intent(this, ReadingService::class.java).apply {
-                        action = "UPDATE_URL"
-                        putExtra("URL", cleanUrl)
+                        action = ReadingService.ACTION_UPDATE_URL  // ← ИСПРАВЛЕНО
+                        putExtra(ReadingService.EXTRA_URL, cleanUrl)  // ← ИСПРАВЛЕНО
                     }
                     startService(intent)
                 }

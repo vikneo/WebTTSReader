@@ -46,11 +46,6 @@ class ProgressManager(context: Context) {
         android.util.Log.d("ProgressManager", "🗑 Прогресс очищен")
     }
 
-    // Проверяем, есть ли сохраненный прогресс
-    fun hasProgress(): Boolean {
-        return prefs.getString(KEY_SAVED_URL, null) != null
-    }
-
     // Форматируем время для отображения
     fun getFormattedTime(timestamp: Long): String {
         val date = java.util.Date(timestamp)
