@@ -240,35 +240,41 @@ class MainActivity : AppCompatActivity() {
     private fun setupButtons() {
         // Кнопка "Читать страницу" - теперь с проверкой прогресса
         findViewById<Button>(R.id.btnReadPage).setOnClickListener {
-            // Проверяем сохраненный прогресс
             val progress = progressManager.getProgress()
             if (progress != null) {
-                // Если есть прогресс, спрашиваем пользователя
                 AlertDialog.Builder(this)
                     .setTitle("📚 Продолжить чтение?")
-                    .setMessage("Вы читали: ${progress.url}\nПрогресс: ${progress.scrollPosition}%\nСохранено: ${progressManager.getFormattedTime(progress.timestamp)}")
+                    .setMessage("Вы читали: ${progress.url}\nПрогресс: ${progress.scrollPosition}%\nЧасть: ${progress.chunkIndex + 1}/${progress.totalChunks}\nСохранено: ${progressManager.getFormattedTime(progress.timestamp)}")
                     .setPositiveButton("Продолжить") { _, _ ->
-                        // Загружаем сохраненную страницу
+                        // Загружаем страницу
                         webView.loadUrl(progress.url)
+
                         // Восстанавливаем позицию прокрутки
                         webView.evaluateJavascript(
                             "window.scrollTo(0, document.body.scrollHeight * ${progress.scrollPosition} / 100);",
                             null
                         )
-                        // Если есть сохраненный текст, читаем его
+
+                        // Если есть сохраненный текст, читаем с нужной позиции
                         if (progress.text.isNotEmpty()) {
-                            startReadingService(progress.text)
+                            // Передаем текст и индекс части в сервис
+                            val intent = Intent(this, ReadingService::class.java).apply {
+                                action = ReadingService.ACTION_START_READING
+                                putExtra(ReadingService.EXTRA_TEXT, progress.text)
+                                putExtra(ReadingService.EXTRA_CHUNK_INDEX, progress.chunkIndex)
+                            }
+                            startService(intent)
+                            isReading = true
+                            Toast.makeText(this, "📖 Продолжаю чтение с части ${progress.chunkIndex + 1}", Toast.LENGTH_SHORT).show()
                         }
                     }
                     .setNegativeButton("Новая страница") { _, _ ->
-                        // Очищаем прогресс и читаем текущую страницу
                         progressManager.clearProgress()
                         readCurrentPage()
                     }
                     .setNeutralButton("Отмена", null)
                     .show()
             } else {
-                // Если прогресса нет, просто читаем текущую страницу
                 readCurrentPage()
             }
         }
