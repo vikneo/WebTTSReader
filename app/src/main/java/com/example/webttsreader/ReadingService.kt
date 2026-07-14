@@ -1,6 +1,5 @@
 package com.example.webttsreader
 
-import android.R
 import android.app.*
 import android.content.Context
 import android.content.Intent
@@ -20,40 +19,36 @@ class ReadingService : Service() {
         private const val NOTIFICATION_ID = 1001
         private const val TAG = "ReadingService"
 
-        // Команды для сервиса
         const val ACTION_START_READING = "START_READING"
         const val ACTION_STOP_READING = "STOP_READING"
         const val ACTION_PAUSE_READING = "PAUSE_READING"
         const val ACTION_RESUME_READING = "RESUME_READING"
         const val ACTION_UPDATE_URL = "UPDATE_URL"
+        const val ACTION_RESUME_FROM_PROGRESS = "RESUME_FROM_PROGRESS"  // ← НОВОЕ
         const val EXTRA_TEXT = "TEXT"
         const val EXTRA_URL = "URL"
+        const val EXTRA_CHUNK_INDEX = "CHUNK_INDEX"  // ← НОВОЕ
     }
 
     private lateinit var tts: TextToSpeech
+    private lateinit var progressManager: ProgressManager
     private var isReading = false
     private var isPaused = false
-    private var isTtsReady = false  // ← НОВАЯ ПЕРЕМЕННАЯ
-    private var pendingText = ""    // ← НОВАЯ ПЕРЕМЕННАЯ
+    private var isTtsReady = false
+    private var pendingText = ""
     private var currentText = ""
     private var currentChunks = mutableListOf<String>()
     private var currentChunkIndex = 0
-    // Добавляем менеджер прогресса
-    private lateinit var progressManager: ProgressManager
     private var currentUrl: String = ""
 
     override fun onCreate() {
         super.onCreate()
+        Log.d(TAG, "🔄 Сервис создан")
 
         progressManager = ProgressManager(this)
         createNotificationChannel()
         initTTS()
         startForeground(NOTIFICATION_ID, createNotification("Готов к чтению"))
-    }
-
-    // Добавляем метод для обновления URL
-    fun updateCurrentUrl(url: String) {
-        currentUrl = url
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -77,15 +72,22 @@ class ReadingService : Service() {
                     return START_STICKY
                 }
 
-                // Сохраняем текст для чтения после инициализации
                 pendingText = text
 
-                // Если TTS уже готов, начинаем чтение
                 if (isTtsReady) {
-                    startReading(text)
+                    startReading(text, 0)
                 } else {
                     Log.d(TAG, "⏳ Ожидаем инициализацию TTS...")
                     Toast.makeText(this, "⏳ Подготовка голосового движка...", Toast.LENGTH_SHORT).show()
+                }
+            }
+            ACTION_RESUME_FROM_PROGRESS -> {  // ← НОВОЕ
+                val chunkIndex = intent.getIntExtra(EXTRA_CHUNK_INDEX, 0)
+                Log.d(TAG, "📥 Возобновление с части $chunkIndex")
+
+                if (pendingText.isNotEmpty() && isTtsReady) {
+                    startReading(pendingText, chunkIndex)
+                    pendingText = ""
                 }
             }
             ACTION_STOP_READING -> {
@@ -100,8 +102,8 @@ class ReadingService : Service() {
                 Log.d(TAG, "▶️ Команда возобновления")
                 resumeReading()
             }
-            "UPDATE_URL" -> {
-                val url = intent.getStringExtra("URL")
+            ACTION_UPDATE_URL -> {
+                val url = intent.getStringExtra(EXTRA_URL)
                 if (!url.isNullOrEmpty()) {
                     currentUrl = url
                     Log.d(TAG, "🌐 URL обновлен: $currentUrl")
@@ -147,6 +149,18 @@ class ReadingService : Service() {
                                 isReading = false
                                 updateNotification("✅ Чтение завершено")
                                 Log.d(TAG, "🏁 Чтение завершено")
+
+                                // Сохраняем финальный прогресс
+                                if (currentUrl.isNotEmpty()) {
+                                    progressManager.saveProgress(
+                                        currentUrl,
+                                        100,
+                                        currentText,
+                                        currentChunkIndex,
+                                        currentChunks.size
+                                    )
+                                }
+
                                 stopSelf()
                             }
                         }
@@ -165,7 +179,7 @@ class ReadingService : Service() {
                     // Если есть текст, ожидающий чтения, начинаем
                     if (pendingText.isNotEmpty()) {
                         Log.d(TAG, "🚀 Начинаем отложенное чтение, длина: ${pendingText.length}")
-                        startReading(pendingText)
+                        startReading(pendingText, 0)
                         pendingText = ""
                     }
                 }
@@ -176,8 +190,7 @@ class ReadingService : Service() {
         }
     }
 
-    private fun startReading(text: String) {
-        // Проверяем, что TTS готов
+    private fun startReading(text: String, startChunkIndex: Int = 0) {
         if (!isTtsReady) {
             Log.e(TAG, "❌ TTS не готов, сохраняем текст для отложенного чтения")
             pendingText = text
@@ -190,17 +203,20 @@ class ReadingService : Service() {
         }
 
         currentText = text
-        currentChunkIndex = 0
         currentChunks = splitTextIntoChunks(text)
 
-        Log.d(TAG, "📊 Текст разбит на ${currentChunks.size} частей")
+        // Устанавливаем начальный индекс
+        currentChunkIndex = minOf(startChunkIndex, currentChunks.size - 1)
+        if (currentChunkIndex < 0) currentChunkIndex = 0
+
+        Log.d(TAG, "📊 Текст разбит на ${currentChunks.size} частей, начинаем с ${currentChunkIndex + 1}")
         updateNotification("Начинаю чтение...")
         isReading = true
         isPaused = false
 
-        // Сохраняем прогресс (если есть URL)
         if (currentUrl.isNotEmpty()) {
-            progressManager.saveProgress(currentUrl, 0, text)
+            val progress = (currentChunkIndex.toFloat() / currentChunks.size * 100).toInt()
+            progressManager.saveProgress(currentUrl, progress, text, currentChunkIndex, currentChunks.size)
         }
 
         speakNextChunk()
@@ -209,12 +225,12 @@ class ReadingService : Service() {
     private fun speakNextChunk() {
         if (currentChunkIndex < currentChunks.size && !isPaused) {
             val chunk = currentChunks[currentChunkIndex]
-            Log.d(TAG, "Читаю часть ${currentChunkIndex + 1}/${currentChunks.size}")
+            Log.d(TAG, "📢 Читаю часть ${currentChunkIndex + 1}/${currentChunks.size}")
 
-            // Сохраняем прогресс каждые 5 частей
-            if (currentChunkIndex % 5 == 0 && currentUrl.isNotEmpty()) {
+            // Сохраняем прогресс каждые 3 части
+            if (currentChunkIndex % 3 == 0 && currentUrl.isNotEmpty()) {
                 val progress = (currentChunkIndex.toFloat() / currentChunks.size * 100).toInt()
-                progressManager.saveProgress(currentUrl, progress, currentText)
+                progressManager.saveProgress(currentUrl, progress, currentText, currentChunkIndex, currentChunks.size)
             }
 
             tts.speak(chunk, TextToSpeech.QUEUE_ADD, null, "chunk_$currentChunkIndex")
@@ -224,12 +240,11 @@ class ReadingService : Service() {
 
     private fun splitTextIntoChunks(text: String): MutableList<String> {
         val chunks = mutableListOf<String>()
-        val maxChunkSize = 3000
+        val maxChunkSize = 300
 
         var start = 0
         while (start < text.length) {
             var end = minOf(start + maxChunkSize, text.length)
-            // Ищем последнюю точку или пробел
             if (end < text.length) {
                 val lastSpace = text.lastIndexOf(' ', end)
                 if (lastSpace > start) {
@@ -247,7 +262,13 @@ class ReadingService : Service() {
             isPaused = true
             tts.stop()
             updateNotification("⏸ На паузе")
-            Log.d(TAG, "Чтение приостановлено")
+            Log.d(TAG, "⏸ Чтение приостановлено на части ${currentChunkIndex + 1}/${currentChunks.size}")
+
+            // Сохраняем прогресс при паузе
+            if (currentUrl.isNotEmpty() && currentChunks.isNotEmpty()) {
+                val progress = (currentChunkIndex.toFloat() / currentChunks.size * 100).toInt()
+                progressManager.saveProgress(currentUrl, progress, currentText, currentChunkIndex, currentChunks.size)
+            }
         }
     }
 
@@ -256,7 +277,7 @@ class ReadingService : Service() {
             isPaused = false
             updateNotification("Читаю...")
             speakNextChunk()
-            Log.d(TAG, "Чтение возобновлено")
+            Log.d(TAG, "▶️ Чтение возобновлено с части ${currentChunkIndex + 1}")
         }
     }
 
@@ -265,29 +286,33 @@ class ReadingService : Service() {
         isPaused = false
         tts.stop()
 
-        // Сохраняем финальный прогресс
-        if (currentUrl.isNotEmpty()) {
+        if (currentUrl.isNotEmpty() && currentChunks.isNotEmpty()) {
             val progress = (currentChunkIndex.toFloat() / currentChunks.size * 100).toInt()
-            progressManager.saveProgress(currentUrl, progress, currentText)
+            progressManager.saveProgress(currentUrl, progress, currentText, currentChunkIndex, currentChunks.size)
+            Log.d(TAG, "💾 Прогресс сохранен: $progress%, часть ${currentChunkIndex + 1}/${currentChunks.size}")
         }
 
-        updateNotification("Чтение остановлено")
-        Log.d(TAG, "Чтение остановлено")
+        updateNotification("⏹ Чтение остановлено")
+        Log.d(TAG, "⏹ Чтение остановлено")
 
-        // Останавливаем сервис через 2 секунды
         android.os.Handler(mainLooper).postDelayed({
             stopSelf()
         }, 2000)
     }
 
     override fun onDestroy() {
-        tts.shutdown()
+        Log.d(TAG, "🔄 Сервис уничтожен")
+        try {
+            tts.shutdown()
+        } catch (e: Exception) {
+            Log.e(TAG, "Ошибка при завершении TTS", e)
+        }
         super.onDestroy()
-        Log.d(TAG, "Сервис уничтожен")
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    // --- Уведомления (без изменений) ---
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
@@ -303,14 +328,12 @@ class ReadingService : Service() {
     }
 
     private fun createNotification(content: String): Notification {
-        // Intent для открытия приложения при нажатии на уведомление
         val intent = packageManager.getLaunchIntentForPackage(packageName)
         val pendingIntent = PendingIntent.getActivity(
             this, 0, intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        // Кнопки управления
         val stopIntent = Intent(this, ReadingService::class.java).apply {
             action = ACTION_STOP_READING
         }
@@ -330,10 +353,10 @@ class ReadingService : Service() {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("📖 Чтец книг")
             .setContentText(content)
-            .setSmallIcon(R.drawable.ic_media_play)
+            .setSmallIcon(android.R.drawable.ic_media_play)
             .setContentIntent(pendingIntent)
-            .addAction(R.drawable.ic_media_pause, if (isPaused) "▶" else "⏸", pausePendingIntent)
-            .addAction(R.drawable.ic_media_rew, "⏹", stopPendingIntent)
+            .addAction(android.R.drawable.ic_media_pause, if (isPaused) "▶" else "⏸", pausePendingIntent)
+            .addAction(android.R.drawable.ic_media_rew, "⏹", stopPendingIntent)
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
