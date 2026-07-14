@@ -1,5 +1,41 @@
-# WebTTSReader
+# 📖 Web TTS Reader
 
-### Читалка для онлайн книг.
+Голосовой помощник для чтения книг с сайта
 
-Читалку можно скачать здесь [WebTTSReader.apk](https://github.com/vikneo/WebTTSReader/tree/master/app/WebTTSReader.apk)
+## ✨ Возможности
+
+[//]: # (- 🔍 Поиск и просмотр веб-страниц)
+- 📖 Извлечение текста книг
+- 🔊 Озвучивание текста (Text-to-Speech)
+- 🎧 Фоновое чтение с выключенным экраном
+- 💾 Сохранение прогресса чтения
+- 📌 Продолжение с того же места
+- ⏯ Управление через уведомление
+
+## 🛠️ Технологии
+
+- Kotlin
+- Android SDK
+- WebView
+- TextToSpeech (TTS)
+- Foreground Service
+- SharedPreferences
+
+## 📱 Требования
+
+- Android 7.0 (API 24) или выше
+- Установленный голосовой движок (Google TTS)
+
+## 🚀 Установка
+
+### Из исходников
+1. Клонируйте репозиторий
+2. Откройте в Android Studio
+3. Соберите и запустите
+
+### APK
+[Скачать последнюю версию](https://github.com/vikneo/WebTTSReader/tree/master/app/WebTTSReader.apk)
+
+## 📝 Лицензия
+
+MIT License
