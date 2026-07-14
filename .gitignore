@@ -17,3 +17,9 @@ local.properties
 /.kotlin/
 /gradlew
 /gradlew.bat
+
+# Keystore (ВАЖНО!)
+keystore.properties
+keystore/
+*.jks
+*.keystore
